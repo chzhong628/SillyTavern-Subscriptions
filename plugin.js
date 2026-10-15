@@ -39,7 +39,7 @@ import { cpSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, re
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { startStandaloneListener, stopStandaloneListener, handleStatus, handleQuota, handleModels } from './lib/listener.js';
+import { startStandaloneListener, stopStandaloneListener, handleStatus, handleQuota, handleModels, handleImageGenerations } from './lib/listener.js';
 import { stopAppServer } from './lib/codex/app-server.js';
 import { sdkUpdateNeeded } from './lib/claude/sdk-loader.js';
 import { envInt, envString, envFlag } from './lib/common/platform.js';
@@ -282,15 +282,17 @@ export function safeRoute(fn) {
 }
 
 /**
- * SillyTavern-mounted routes (GET is CSRF-exempt): same-origin health, quota
- * and model list for the UI extension — a direct browser fetch to
+ * SillyTavern-mounted routes: same-origin health, quota, models and images.
+ * Image POSTs reuse ST's authentication, JSON parsing and CSRF protection.
+ * A direct browser fetch to
  * 127.0.0.1:8901 resolves to the CLIENT device and fails whenever SillyTavern
- * is browsed from a phone or another PC. GET only, so no body parser.
+ * is browsed from a phone or another PC. ST already provides the body parser.
  */
 export function mountStRoutes(router) {
     router.get('/status', safeRoute(handleStatus));
     router.get('/quota', safeRoute(handleQuota));
     router.get('/models', safeRoute((req, res) => handleModels(req, res, null)));
+    router.post('/images/generations', safeRoute((req, res) => handleImageGenerations(req, res)));
 }
 
 export async function init(router) {

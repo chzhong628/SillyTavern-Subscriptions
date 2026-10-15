@@ -177,6 +177,40 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
 * Model catalog is live (`model/list`), then `models_cache.json`, then a static
   snapshot. Efforts are clamped to what the model supports.
 
+## Codex image generation
+
+`lib/codex/images.js` adds a subscription-only path alongside text chat:
+
+1. Validate the prompt and supported controls before starting a process.
+2. Acquire the separate image app-server singleton. It enables experimental
+   API access and `image_generation`, forces the `openai` provider and keeps
+   the remaining roleplay isolation overrides and MCP config checks.
+3. Require ChatGPT authentication and official OpenAI endpoints, check
+   `modelProvider/capabilities/read`, and select a live catalog chat model.
+4. Start an ephemeral read-only thread, reject injected global instructions
+   and model substitution, then request one built-in image-tool result.
+5. Reject forbidden tool starts, rerouting and malformed/oversized output.
+   Decode only returned base64 bytes, never tool-provided paths or URLs.
+6. Interrupt on cancellation/deadline and unsubscribe the thread on exit.
+
+The normal chat singleton never enables the image feature. Both persistent
+processes stop on plugin shutdown. Image requests have their own in-flight
+AbortControllers and use the existing standalone listener access guard or
+SillyTavern's authenticated same-origin plugin route. Image responses are
+JSON; the chat SSE behavior below does not apply to them.
+
+In the browser, `generateImageInChat` captures the originating chat identity,
+calls the same-origin generation route with CSRF headers, uploads via
+`/api/images/upload`, checks the chat again, emits the normal message/render
+events and saves the chat. It supports current `media[]` and older image
+message fields. A chat switch prevents posting to the destination chat;
+switching during upload can leave an unreferenced saved image. The panel and
+slash command share this helper and cancellation path.
+
+The public request/response contract, real output and current limitations
+are in [CODEX_IMAGES.md](CODEX_IMAGES.md). This initial path does not register
+a provider in SillyTavern's built-in Image Generation extension.
+
 ## Gemini specifics
 
 * Prompt on **stdin** with `--input-format text` (no `-p`): avoids the

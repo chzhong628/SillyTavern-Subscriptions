@@ -65,7 +65,7 @@ const fresh = () => loadSettings({});
 test('manifest version matches UI_VERSION and declares a minimum client version', () => {
     const m = JSON.parse(readFileSync(join(repoRoot, 'manifest.json'), 'utf8'));
     assert.equal(m.version, UI_VERSION);
-    assert.equal(UI_VERSION, '3.1.0');
+    assert.equal(UI_VERSION, JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8')).version);
     assert.equal(m.js, 'index.js');
     assert.match(String(m.minimum_client_version), /^\d+\.\d+\.\d+$/);
 });

@@ -1,5 +1,13 @@
 # Changelog
 
+## 3.2.0 (unreleased)
+
+- Add subscription-only Codex text-to-image generation through a separate app-server process, with capability/login checks and no API billing fallback.
+- Add an Images panel and `/codex-image` command that save images to the current SillyTavern chat, including cancellation and chat-switch protection.
+- Add OpenAI-style `/v1/images/generations` and same-origin ST image routes. Initially supports one base64 image per request; unsupported controls fail explicitly.
+- Add offline coverage for image results, isolation, billing guards, errors, cancellation, deadlines and frontend persistence.
+- Document feature-branch installation, API usage, current limitations and a real generated-image/chat example in [the image guide](docs/CODEX_IMAGES.md).
+
 ## 3.1.0
 
 Update: restart SillyTavern (it pulls the code), then run `npm install` inside

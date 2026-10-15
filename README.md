@@ -18,6 +18,23 @@ shows up, the rest stay out of the way.
   <img src="docs/images/panel-2.png" width="49%" alt="Status and quota view: Claude, Codex and Gemini all ready on subscription logins, with live usage windows for Claude and Codex">
 </p>
 
+## New in this branch: Codex subscription images
+
+Generate an image from a text prompt using your **ChatGPT subscription**, then
+save and display it in the current SillyTavern chat. Use **Subscriptions →
+Images — Codex subscription** or `/codex-image <description>`. A text chat API
+connection is not required, and image requests never fall back to a paid API key.
+
+This is an **unreleased feature branch**, not an upstream release. To try it,
+follow the [branch installation and image guide](docs/CODEX_IMAGES.md), which
+includes a real example, API reference, limitations and verification results.
+The general installation steps below still describe the upstream project.
+
+<p align="center">
+  <img src="docs/images/codex-image-example.png" width="48%" alt="Actual Codex subscription output: a small blue sailing boat on a calm lake at sunrise">
+  <img src="docs/images/codex-image-chat.png" width="48%" alt="The generated image displayed and saved in a SillyTavern Assistant chat">
+</p>
+
 ## Quick start
 
 1. Server plugin, from your SillyTavern folder (the one with `server.js`):
@@ -61,7 +78,11 @@ changed: [CHANGELOG.md](CHANGELOG.md).
 - **Codex** — the live model list from your ChatGPT account with per-model
   reasoning efforts, verbosity, the Fast/priority service tier, and streamed
   replies **and** reasoning summaries through the Codex app-server. Your
-  character card is the *real* system prompt; Codex's tools are switched off.
+  character card is the *real* system prompt; Codex's tools are switched off
+  for text chats.
+- **Codex images** — subscription text-to-image generation, a dedicated panel
+  and `/codex-image` command, saved chat images, cancellation and protection
+  against posting into another chat after a chat switch.
 - **Gemini** — Antigravity's model list (Gemini 3.8/3.7/3.6 Flash, 3.1 Pro,
   each with its effort levels), long chats piped safely to the CLI, every turn
   run by a plugin-owned agent with no tools.
@@ -71,7 +92,7 @@ changed: [CHANGELOG.md](CHANGELOG.md).
   Anthropic/OpenAI-compatible relay works by setting a base URL. On Claude,
   the plugin checks before every request that the CLI really authenticated
   with your subscription login (not a stored Console key or another provider).
-- **Roleplay isolation.** No coding preamble, no tools, no MCP servers, no
+- **Text roleplay isolation.** No coding preamble, no tools, no MCP servers, no
   CLAUDE.md / AGENTS.md / GEMINI.md, skills or rules from your machine, no
   account email. (What you cannot switch off: the Claude CLI adds a short note
   with the working directory — a folder inside the plugin — the platform,
@@ -203,7 +224,10 @@ model's default effort, fast mode off.
 | POST | `http://127.0.0.1:8901/v1/chat/completions` | Chat (SSE + JSON), routed by model id |
 | POST | `…/{provider}/v1/chat/completions` | Same, provider forced for unknown ids |
 | POST | `…/v1/embeddings` | Always `501` |
+| POST | `http://127.0.0.1:8901/v1/images/generations` | One Codex subscription image as base64 |
+| POST | `…/codex/v1/images/generations` | Same Codex image endpoint |
 | GET | `http://<sillytavern>/api/plugins/subscriptions/status` | Same-origin health for the panel |
+| POST | `http://<sillytavern>/api/plugins/subscriptions/images/generations` | Same-origin images for the panel; ST authentication and CSRF apply |
 
 Direct API users can send the `subscriptions` object shown in
 `docs/DESIGN.md`, the legacy `claude_subscription` / `codex_subscription` /
@@ -310,6 +334,9 @@ is set. Changing the port? Update **Listener base URL** in the panel.
   after an hour (the server log says so).
 
 ## Development
+
+Image setup, real examples, API contract and test coverage: [Codex image guide](docs/CODEX_IMAGES.md).
+Run `node --test test/images.test.js` for the offline image-path suite.
 
 ```bash
 npm test                          # unit tests

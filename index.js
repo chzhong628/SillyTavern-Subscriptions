@@ -36,7 +36,7 @@
 // listener, so other Custom endpoints are untouched. The defaults are
 // subscription-only for every provider; nothing here ever enables key billing.
 
-export const UI_VERSION = '3.1.0';
+export const UI_VERSION = '3.2.0';
 export const SETTINGS_VERSION = 3;
 export const DEFAULT_BASE = 'http://127.0.0.1:8901';
 
@@ -44,6 +44,64 @@ const MODULE = 'subscriptions';
 const PLUGIN_ROUTE = '/api/plugins/subscriptions';
 const TAG = '[subscriptions]';
 const SELF_URL = import.meta.url;
+
+/** Generate and save through same-origin ST routes, including on remote browsers. */
+export async function generateImageInChat(prompt, { getContext, signal, fetchImpl = globalThis.fetch } = {}) {
+    if (typeof prompt !== 'string' || !prompt.trim() || prompt.length > 32000) throw new Error('Enter an image prompt (at most 32000 characters).');
+    const original = getContext();
+    if (!original.chatId || (!original.groupId && original.characterId === undefined)) throw new Error('Open a character or group chat before generating an image.');
+    const chatId = original.chatId;
+    const characterId = original.characterId;
+    const groupId = original.groupId;
+    const checkChat = () => {
+        if (signal?.aborted) throw Object.assign(new Error('Image generation cancelled'), { name: 'AbortError' });
+        const current = getContext();
+        if (current.chatId !== chatId || current.characterId !== characterId || current.groupId !== groupId || current.chat !== original.chat) {
+            throw new Error('The chat changed while the image was generating. The image was not posted to another chat.');
+        }
+        return current;
+    };
+    const post = async (path, body) => {
+        const response = await fetchImpl(path, { method: 'POST', headers: original.getRequestHeaders(), body: JSON.stringify(body), signal });
+        if (!response.ok) {
+            const text = await response.text();
+            let message = text;
+            try { const parsed = JSON.parse(text); message = parsed.error?.message ?? parsed.error ?? text; } catch { /* plain HTTP error */ }
+            throw new Error(typeof message === 'string' ? message : `Image request failed (${response.status}).`);
+        }
+        return response.json();
+    };
+    checkChat();
+    const result = await post(`${PLUGIN_ROUTE}/images/generations`, { model: 'codex-image', prompt: prompt.trim(), n: 1, response_format: 'b64_json' });
+    const image = result.data?.[0];
+    if (!image?.b64_json || !['png', 'jpg', 'webp'].includes(image.format)) throw new Error('The subscription backend returned no supported image.');
+    checkChat();
+    const saved = await post('/api/images/upload', { image: image.b64_json, format: image.format, ch_name: original.groupId ? undefined : original.name2 });
+    if (typeof saved.path !== 'string' || !saved.path) throw new Error('SillyTavern did not return a saved image path.');
+    const current = checkChat();
+    const message = {
+        name: current.groupId ? 'System' : current.name2,
+        is_user: false, is_system: true,
+        send_date: new Date().toISOString(),
+        mes: prompt.trim(),
+        extra: {
+            // Modern ST uses media[]; older supported ST versions use image.
+            ...(typeof current.ensureMessageMediaIsArray === 'function' ? {
+                media: [{ url: saved.path, type: 'image', title: prompt.trim(), source: 'generated' }],
+                media_display: 'gallery', media_index: 0,
+            } : { image: saved.path, title: prompt.trim(), image_swipes: [saved.path] }),
+            inline_image: false, subscriptions_image: { provider: 'codex', model: result.codex_model },
+        },
+    };
+    current.chat.push(message);
+    const id = current.chat.length - 1;
+    await current.eventSource.emit(current.eventTypes.MESSAGE_RECEIVED, id, 'extension');
+    current.addOneMessage(message);
+    await current.eventSource.emit(current.eventTypes.CHARACTER_MESSAGE_RENDERED, id, 'extension');
+    await current.saveChat();
+    current.scrollOnMediaLoad?.();
+    return saved.path;
+}
 
 export const PROVIDER_KEYS = ['claude', 'codex', 'gemini'];
 export const SCOPES = ['all', 'claude', 'codex', 'gemini'];
@@ -906,6 +964,36 @@ function boot() {
     let statusBusy = false;
     let lastStatus = null;
     let lastQuota = null;
+    let imageController = null;
+    let imageStatus = null;
+    let imageGenerateButton = null;
+
+    async function generateImage(prompt, slashAbort) {
+        if (disposed) throw new Error('This Subscriptions panel is no longer active.');
+        if (!getSettings().enabled) throw new Error('Enable Subscriptions before generating an image.');
+        if (imageController) throw new Error('An image is already generating. Cancel it or wait for it to finish.');
+        const controller = new AbortController();
+        imageController = controller;
+        const cancel = () => controller.abort();
+        slashAbort?.addEventListener('abort', cancel);
+        if (slashAbort?.signal?.aborted) cancel();
+        const timeout = setTimeout(cancel, 11 * 60 * 1000);
+        if (imageStatus) imageStatus.textContent = 'Generating with your Codex subscription…';
+        imageGenerateButton?.setAttribute('aria-disabled', 'true');
+        try {
+            const path = await generateImageInChat(prompt, { getContext: () => globalThis.SillyTavern.getContext(), signal: controller.signal });
+            if (imageStatus) imageStatus.textContent = 'Image saved to the chat.';
+            return path;
+        } catch (err) {
+            if (imageStatus) imageStatus.textContent = controller.signal.aborted ? 'Image generation cancelled.' : errorText(err);
+            throw err;
+        } finally {
+            clearTimeout(timeout);
+            slashAbort?.removeEventListener('abort', cancel);
+            imageController = null;
+            imageGenerateButton?.setAttribute('aria-disabled', 'false');
+        }
+    }
 
     function onSettingsReady(data) {
         try {
@@ -1156,6 +1244,26 @@ function boot() {
             codex.append(makeHelp('How long GPT\'s replies tend to be. Default follows SillyTavern\'s own Verbosity setting (AI Response Configuration) when it is not Auto, otherwise medium.'));
         }
 
+        // ── Images ──
+        const images = makeDrawer(content, 'Images — Codex subscription', 'images');
+        images.append(makeHelp('Generate one image using your ChatGPT/Codex subscription. This uses included Codex limits and never falls back to API billing. The image is saved in the current chat. You can also use /codex-image followed by a prompt.'));
+        const imagePrompt = el('textarea', 'text_pole');
+        imagePrompt.id = 'st_subs_image_prompt';
+        imagePrompt.maxLength = 32000;
+        imagePrompt.rows = 3;
+        imagePrompt.placeholder = 'Describe the image you want to generate…';
+        imagePrompt.setAttribute('aria-label', 'Codex image prompt');
+        imageGenerateButton = makeButton('st-subs-image-generate', 'Generate image', 'Generate image with Codex subscription');
+        imageGenerateButton.addEventListener('click', () => {
+            if (imageController) return;
+            generateImage(imagePrompt.value).catch(err => { if (err.name !== 'AbortError') toast?.error?.(errorText(err), 'Codex image'); });
+        });
+        const cancelImage = makeButton('st-subs-image-cancel', 'Cancel image', 'Cancel Codex image generation');
+        cancelImage.addEventListener('click', () => imageController?.abort());
+        imageStatus = el('small', 'st-subs-hint', 'Uses the default Codex model for your account. Describe aspect ratio and style in the prompt.');
+        imageStatus.setAttribute('aria-live', 'polite');
+        images.append(imagePrompt, imageGenerateButton, cancelImage, imageStatus);
+
         // ── Gemini ──
         const gemini = makeDrawer(content, 'Gemini — Google Antigravity', 'gemini');
         {
@@ -1207,9 +1315,22 @@ function boot() {
 
     const drawer = addExtensionSettings(settings);
     eventSource.on(eventTypes.CHAT_COMPLETION_SETTINGS_READY, onSettingsReady);
+    let imageCommand;
+    if (ctx.SlashCommandParser && ctx.SlashCommand && !ctx.SlashCommandParser.commands?.['codex-image']) {
+        imageCommand = ctx.SlashCommand.fromProps({
+            name: 'codex-image',
+            callback: (args, prompt) => generateImage(String(prompt ?? ''), args._abortController),
+            helpString: 'Generate one image with your Codex subscription and save it to the current chat. Example: /codex-image A blue sailing boat on a calm lake',
+            returns: 'The saved image URL',
+            unnamedArgumentList: ctx.SlashCommandArgument ? [ctx.SlashCommandArgument.fromProps({ description: 'Image prompt', typeList: [ctx.ARGUMENT_TYPE.STRING], isRequired: true })] : [],
+        });
+        ctx.SlashCommandParser.addCommandObject(imageCommand);
+    }
 
     self.dispose = () => {
         disposed = true;
+        imageController?.abort();
+        if (imageCommand && ctx.SlashCommandParser.commands?.['codex-image'] === imageCommand) delete ctx.SlashCommandParser.commands['codex-image'];
         try { eventSource.removeListener?.(eventTypes.CHAT_COMPLETION_SETTINGS_READY, onSettingsReady); } catch { /* ignore */ }
         drawer.remove();
     };

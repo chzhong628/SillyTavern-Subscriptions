@@ -607,14 +607,15 @@ test('installUiExtension respects ST_SUBSCRIPTIONS_NO_UI_INSTALL and a missing S
     }
 });
 
-test('ST-mounted routes are GET-only and registered without a body parser', () => {
+test('ST-mounted routes reuse ST body parsing and expose same-origin image generation', () => {
     const routes = {};
     const router = {
         use() { throw new Error('no middleware expected on the SillyTavern router'); },
         get(path, handler) { routes[path] = handler; },
+        post(path, handler) { routes[path] = handler; },
     };
     mountStRoutes(router);
-    assert.deepEqual(Object.keys(routes).sort(), ['/models', '/quota', '/status']);
+    assert.deepEqual(Object.keys(routes).sort(), ['/images/generations', '/models', '/quota', '/status']);
     for (const h of Object.values(routes)) assert.equal(typeof h, 'function');
 });
 
