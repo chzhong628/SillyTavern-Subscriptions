@@ -1,5 +1,12 @@
 # Changelog
 
+## 3.3.0 (unreleased)
+
+- Add a Codex native image-source adapter, including selection from the Subscriptions panel and a clear compatibility message when core support is absent.
+- Ship an explicit, reversible companion SillyTavern provider-registry patch for `/imagine`, image buttons, interactive mode and native image tools. Never patches core at startup.
+- Bridge an explicitly advertised `GenerateImage` function from Codex subscription text chat to OpenAI-style tool calls, retaining disabled built-in tools and tool-result continuation.
+- Add native integration instructions and real UI examples in [NATIVE_IMAGES.md](docs/NATIVE_IMAGES.md).
+
 ## 3.2.0 (unreleased)
 
 - Add subscription-only Codex text-to-image generation through a separate app-server process, with capability/login checks and no API billing fallback.

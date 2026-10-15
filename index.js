@@ -36,7 +36,7 @@
 // listener, so other Custom endpoints are untouched. The defaults are
 // subscription-only for every provider; nothing here ever enables key billing.
 
-export const UI_VERSION = '3.2.0';
+export const UI_VERSION = '3.3.0';
 export const SETTINGS_VERSION = 3;
 export const DEFAULT_BASE = 'http://127.0.0.1:8901';
 
@@ -44,6 +44,27 @@ const MODULE = 'subscriptions';
 const PLUGIN_ROUTE = '/api/plugins/subscriptions';
 const TAG = '[subscriptions]';
 const SELF_URL = import.meta.url;
+
+export function codexImageProvider({ getContext, fetchImpl = globalThis.fetch, isEnabled = () => true }) {
+    return {
+        id: 'subscriptions:codex', label: 'Codex (ChatGPT subscription)', promptOnly: true,
+        models: [{ value: 'codex-image', text: 'Account default Codex model' }],
+        hint: 'Uses your Codex subscription. One image; describe style and aspect ratio in the prompt. Pixel size, sampling, negative prompts and seed are not supported. No API-key fallback.',
+        isAvailable: isEnabled,
+        async generate({ prompt, signal }) {
+            if (!isEnabled()) throw new Error('Enable Subscriptions before generating an image.');
+            const response = await fetchImpl(`${PLUGIN_ROUTE}/images/generations`, {
+                method: 'POST', headers: getContext().getRequestHeaders(), signal,
+                body: JSON.stringify({ model: 'codex-image', prompt, n: 1, response_format: 'b64_json' }),
+            });
+            const result = await response.json();
+            if (!response.ok) throw new Error(result.error?.message || 'Codex image generation failed.');
+            const image = result.data?.[0];
+            if (!image?.b64_json || !['png', 'jpg', 'webp'].includes(image.format)) throw new Error('Codex returned no supported image.');
+            return { data: image.b64_json, format: image.format };
+        },
+    };
+}
 
 /** Generate and save through same-origin ST routes, including on remote browsers. */
 export async function generateImageInChat(prompt, { getContext, signal, fetchImpl = globalThis.fetch } = {}) {
@@ -967,6 +988,24 @@ function boot() {
     let imageController = null;
     let imageStatus = null;
     let imageGenerateButton = null;
+    let nativeImageCleanup;
+    let nativeImageStatus;
+    let nativeImagesReady = false;
+
+    async function registerNativeImages() {
+        try {
+            const { registerImageGenerationProvider } = await import('/scripts/extensions/stable-diffusion/providers.js');
+            if (disposed) return;
+            nativeImageCleanup = registerImageGenerationProvider(codexImageProvider({
+                getContext: () => globalThis.SillyTavern.getContext(), isEnabled: () => !disposed && getSettings().enabled,
+            }));
+            nativeImagesReady = true;
+            nativeImageStatus.textContent = 'Available in Image Generation → Source → Codex (ChatGPT subscription). Use /imagine, interactive mode, or the GenerateImage function tool.';
+        } catch (err) {
+            nativeImageStatus.textContent = 'Native source integration needs the companion SillyTavern provider patch. The standalone panel and /codex-image still work. See docs/NATIVE_IMAGES.md.';
+            console.info(`${TAG} native image source unavailable:`, err.message);
+        }
+    }
 
     async function generateImage(prompt, slashAbort) {
         if (disposed) throw new Error('This Subscriptions panel is no longer active.');
@@ -1263,6 +1302,16 @@ function boot() {
         imageStatus = el('small', 'st-subs-hint', 'Uses the default Codex model for your account. Describe aspect ratio and style in the prompt.');
         imageStatus.setAttribute('aria-live', 'polite');
         images.append(imagePrompt, imageGenerateButton, cancelImage, imageStatus);
+        nativeImageStatus = el('small', 'st-subs-hint', 'Checking native image source support…');
+        const selectNative = makeButton('st-subs-native-images', 'Use native image generation', 'Select Codex in SillyTavern Image Generation');
+        selectNative.addEventListener('click', () => {
+            const source = document.querySelector('#sd_source');
+            if (!nativeImagesReady || !source) { toast?.warning?.(nativeImageStatus.textContent, 'Codex images'); return; }
+            source.value = 'subscriptions:codex';
+            source.dispatchEvent(new Event('change', { bubbles: true }));
+            toast?.info?.('Codex selected. For plain chat requests, enable Image Generation interactive mode or its function tool with chat tool calling.', 'Codex images');
+        });
+        images.append(selectNative, nativeImageStatus);
 
         // ── Gemini ──
         const gemini = makeDrawer(content, 'Gemini — Google Antigravity', 'gemini');
@@ -1314,6 +1363,7 @@ function boot() {
     if (JSON.stringify(settings) !== before) saveSettingsDebounced();
 
     const drawer = addExtensionSettings(settings);
+    registerNativeImages();
     eventSource.on(eventTypes.CHAT_COMPLETION_SETTINGS_READY, onSettingsReady);
     let imageCommand;
     if (ctx.SlashCommandParser && ctx.SlashCommand && !ctx.SlashCommandParser.commands?.['codex-image']) {
@@ -1330,6 +1380,7 @@ function boot() {
     self.dispose = () => {
         disposed = true;
         imageController?.abort();
+        nativeImageCleanup?.();
         if (imageCommand && ctx.SlashCommandParser.commands?.['codex-image'] === imageCommand) delete ctx.SlashCommandParser.commands['codex-image'];
         try { eventSource.removeListener?.(eventTypes.CHAT_COMPLETION_SETTINGS_READY, onSettingsReady); } catch { /* ignore */ }
         drawer.remove();

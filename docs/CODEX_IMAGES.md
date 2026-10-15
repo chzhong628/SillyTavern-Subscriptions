@@ -5,7 +5,7 @@ the image tool exposed by a signed-in Codex CLI. The result is uploaded to
 SillyTavern's image storage and saved as a message in the current chat.
 
 It is available on the unreleased `codex/image-generation` branch. No upstream
-release or pull request is implied by the version number `3.2.0`.
+release or pull request is implied by the version number `3.3.0`.
 
 ## What changes for users
 
@@ -69,7 +69,7 @@ every earlier or later version supports the same experimental protocol.
    select this feature. A panel-only installation cannot run the server route.
 
 5. Restart SillyTavern and hard-refresh the browser. Confirm the Subscriptions
-   panel shows version **3.2.0** and the Images section. If the server plugin
+   panel shows version **3.3.0** and the Images section. If the server plugin
    manages a fallback panel copy automatically, it copies the files from its
    own branch; an independently installed panel still needs step 4.
 
@@ -135,7 +135,7 @@ returned by the implementation.
 | Size and quality fields | Omit them or use `auto`; explicit values are rejected |
 | Seed, negative prompt, transparent background control | Not exposed |
 | Image input, editing, variations, batches, streaming | Not supported |
-| Native SillyTavern `/imagine` / Image Generation source picker | Not integrated; use this panel or `/codex-image` |
+| Native SillyTavern image generation | Available with the [companion core patch](NATIVE_IMAGES.md); includes `/imagine` and native tool/interactive flows |
 | Claude/Gemini image generation | Not added by this change |
 | API-key fallback | Never attempted on the image path |
 
@@ -235,7 +235,7 @@ node --test test/images.test.js
 npm test
 ```
 
-The verification run for this branch passed **211 tests**, including the
+The original 3.2.0 verification passed **211 tests**, including the
 SillyTavern YAML integration checks enabled with `ST_ROOT` pointing to a
 SillyTavern checkout. The image-specific suite has **12 tests** covering
 validation, image decoding, process configuration, login/endpoint guards,
@@ -244,9 +244,9 @@ deadlines, HTTP disconnects, upload/persistence and chat-switch protection.
 These use fake protocol/HTTP/UI objects; they do not prove live account
 availability or replace browser testing.
 
-Live verification on Windows used SillyTavern 1.19.0 and Codex CLI 0.162.1: an actual subscription
+The original 3.2.0 live verification on Windows used SillyTavern 1.19.0 and Codex CLI 0.162.1: an actual subscription
 image result was received, the panel generated and uploaded the example
 above, and the saved chat/image survived reopening after refresh. A live
 slash-command invocation, live group chat, remote-browser setup and image
 generation on Linux/macOS/Termux have not been verified. They should be
-checked by contributors on those environments before broader release.
+checked by contributors on those environments before broader release. For the additional 3.3.0 native integration and its verification, see [NATIVE_IMAGES.md](NATIVE_IMAGES.md).

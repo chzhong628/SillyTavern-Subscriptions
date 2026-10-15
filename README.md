@@ -25,6 +25,12 @@ save and display it in the current SillyTavern chat. Use **Subscriptions →
 Images — Codex subscription** or `/codex-image <description>`. A text chat API
 connection is not required, and image requests never fall back to a paid API key.
 
+**Native integration (3.3.0 preview):** with the [companion SillyTavern
+patch](docs/NATIVE_IMAGES.md), select **Image Generation → Source → Codex
+(ChatGPT subscription)** and use `/imagine`, image buttons, interactive chat
+requests or the `GenerateImage` function tool. Installing Subscriptions alone
+does not add this source to an unpatched SillyTavern installation.
+
 This is an **unreleased feature branch**, not an upstream release. To try it,
 follow the [branch installation and image guide](docs/CODEX_IMAGES.md), which
 includes a real example, API reference, limitations and verification results.

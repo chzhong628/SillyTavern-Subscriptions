@@ -104,6 +104,52 @@ class FakeServer {
 
 // ── config.js ──
 
+test('GenerateImage is delegated as OpenAI tool calls in JSON and SSE without running it', async () => {
+    for (const stream of [false, true]) {
+        const server = new FakeServer({ script(s) {
+            s.emit('item/started', { item: { type: 'dynamicToolCall', tool: 'GenerateImage' } });
+            s.emit('item/tool/call', { tool: 'GenerateImage', callId: 'image_call', arguments: { prompt: 'night sky' } });
+            s.complete('interrupted');
+        } });
+        const { res, writer } = makeWriter({ stream });
+        await runAppServerTurn({ server, messages: MESSAGES, model: 'gpt-5.5', settings: settings(), writer, modelProvider: 'openai', imageTool: true });
+        const started = server.calls.find(c => c.method === 'thread/start').params;
+        assert.equal(started.dynamicTools[0].name, 'GenerateImage');
+        assert.match(started.baseInstructions, /call GenerateImage/);
+        assert.ok(server.methods().includes('turn/interrupt'));
+        const calls = stream ? ssePayloads(res).find(p => p?.choices?.[0]?.delta?.tool_calls)?.choices[0].delta.tool_calls : res.body.choices[0].message.tool_calls;
+        assert.equal(calls[0].function.name, 'GenerateImage');
+        assert.deepEqual(JSON.parse(calls[0].function.arguments), { prompt: 'night sky' });
+        assert.equal(stream ? sseFinish(res) : res.body.choices[0].finish_reason, 'tool_calls');
+        assert.equal(server.listeners.size, 0);
+    }
+});
+
+test('image tool bridge still refuses shell and unregistered or malformed tool calls', async () => {
+    for (const script of [
+        s => s.emit('item/started', { item: { type: 'commandExecution' } }),
+        s => s.emit('item/tool/call', { tool: 'OtherTool', arguments: { prompt: 'night' } }),
+        s => s.emit('item/tool/call', { tool: 'GenerateImage', arguments: { prompt: '' } }),
+    ]) {
+        const server = new FakeServer({ script(s) { script(s); s.complete('interrupted'); } });
+        const { writer } = makeWriter({ stream: false });
+        await assert.rejects(runAppServerTurn({ server, messages: MESSAGES, model: 'gpt-5.5', settings: settings(), writer, imageTool: true }), /tool|arguments/);
+    }
+});
+
+test('tool-result continuation retains the completed client call and does not lose its result', async () => {
+    const server = new FakeServer({ script: s => s.complete() });
+    const { writer } = makeWriter({ stream: false });
+    await runAppServerTurn({ server, model: 'gpt-5.5', settings: settings(), writer, imageTool: true, messages: [
+        ...MESSAGES, { role: 'assistant', content: null, tool_calls: [{ id: 'image1', function: { name: 'GenerateImage', arguments: '{"prompt":"night"}' } }] },
+        { role: 'tool', tool_call_id: 'image1', content: '/user/images/night.png' },
+    ] });
+    const input = server.calls.find(c => c.method === 'turn/start').params.input[0].text;
+    assert.match(input, /GenerateImage/);
+    assert.match(input, /Completed client tool result/);
+    assert.match(input, /night.png/);
+});
+
 test('config scan finds inline-table, dotted, literal and quoted MCP servers and plugins', () => {
     const dir = mkdtempSync(join(tmpdir(), 'st-subs-codex-cfg-'));
     writeFileSync(join(dir, 'config.toml'), [

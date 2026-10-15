@@ -193,7 +193,7 @@ plugin, so a key is only ever billed after the user opts in (Auto or API).
    Decode only returned base64 bytes, never tool-provided paths or URLs.
 6. Interrupt on cancellation/deadline and unsubscribe the thread on exit.
 
-The normal chat singleton never enables the image feature. Both persistent
+The normal chat singleton never enables the image feature. All persistent
 processes stop on plugin shutdown. Image requests have their own in-flight
 AbortControllers and use the existing standalone listener access guard or
 SillyTavern's authenticated same-origin plugin route. Image responses are
@@ -208,8 +208,20 @@ switching during upload can leave an unreferenced saved image. The panel and
 slash command share this helper and cancellation path.
 
 The public request/response contract, real output and current limitations
-are in [CODEX_IMAGES.md](CODEX_IMAGES.md). This initial path does not register
-a provider in SillyTavern's built-in Image Generation extension.
+are in [CODEX_IMAGES.md](CODEX_IMAGES.md). On unpatched SillyTavern, this path
+does not register a native provider. The optional 3.3.0 bridge registers
+`subscriptions:codex` through the companion provider registry, leaving native
+prompt processing, uploads, media rendering and swipe behavior with SillyTavern.
+See [NATIVE_IMAGES.md](NATIVE_IMAGES.md).
+
+For subscription text requests explicitly advertising `GenerateImage`, a
+third isolated app-server instance opts into experimental dynamic tools while
+keeping built-in tools disabled. It exposes only that function with a fixed
+prompt schema. The runner validates the request, interrupts the turn and
+returns OpenAI `tool_calls`; it never executes client functions. SillyTavern's
+ToolManager executes the native tool and sends its result in a new completion.
+The transcript includes completed calls/results for that continuation. Normal
+text requests and `tool_choice: none` do not expose the dynamic image tool.
 
 ## Gemini specifics
 

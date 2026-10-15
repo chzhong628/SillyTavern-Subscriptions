@@ -1,0 +1,148 @@
+diff --git a/public/scripts/extensions/stable-diffusion/index.js b/public/scripts/extensions/stable-diffusion/index.js
+index c9e947db4..2ddbf1c17 100644
+--- a/public/scripts/extensions/stable-diffusion/index.js
++++ b/public/scripts/extensions/stable-diffusion/index.js
+@@ -57,6 +57,7 @@ import { SlashCommandEnumValue } from '../../slash-commands/SlashCommandEnumValu
+ import { callGenericPopup, Popup, POPUP_TYPE } from '../../popup.js';
+ import { commonEnumProviders } from '../../slash-commands/SlashCommandCommonEnumsProvider.js';
+ import { ToolManager } from '../../tool-calling.js';
++import { getImageGenerationProvider, listImageGenerationProviders, onImageGenerationProvidersChanged } from './providers.js';
+ import { macros, MacroCategory } from '../../macros/macro-system.js';
+ import { t, translate } from '../../i18n.js';
+ import { oai_settings } from '../../openai.js';
+@@ -449,6 +450,11 @@ function getSdRequestBody() {
+ }
+
+ function toggleSourceControls() {
++    const provider = getImageGenerationProvider(extension_settings.sd.source);
++    $('#sd_external_provider_hint').text(provider?.hint || '').toggle(Boolean(provider));
++    // External providers opt into explicit pixel/sampling controls themselves.
++    $('#sd_resolution, #sd_width, #sd_height, #sd_swap_dimensions, #sd_steps, #sd_scale, #sd_clip_skip, #sd_seed, #sd_restore_faces, #sd_enable_hr, #sd_negative_prompt, #sd_sampler, #sd_scheduler, #sd_vae')
++        .prop('disabled', Boolean(provider?.promptOnly));
+     $('.sd_settings [data-sd-source]').each(function () {
+         const source = $(this).data('sd-source').split(',');
+         $(this).toggle(source.includes(extension_settings.sd.source));
+@@ -1674,6 +1680,9 @@ async function loadSamplers() {
+     let samplers = [];
+
+     switch (extension_settings.sd.source) {
++        default:
++            if (getImageGenerationProvider(extension_settings.sd.source)) samplers = ['N/A'];
++            break;
+         case sources.extras:
+             samplers = await loadExtrasSamplers();
+             break;
+@@ -1927,6 +1936,9 @@ async function loadModels() {
+     let models = [];
+
+     switch (extension_settings.sd.source) {
++        default:
++            models = getImageGenerationProvider(extension_settings.sd.source)?.models || [];
++            break;
+         case sources.extras:
+             models = await loadExtrasModels();
+             break;
+@@ -2571,6 +2583,9 @@ async function loadSchedulers() {
+     let schedulers = [];
+
+     switch (extension_settings.sd.source) {
++        default:
++            if (getImageGenerationProvider(extension_settings.sd.source)) schedulers = ['N/A'];
++            break;
+         case sources.extras:
+             schedulers = ['N/A'];
+             break;
+@@ -2694,6 +2709,9 @@ async function loadVaes() {
+     let vaes = [];
+
+     switch (extension_settings.sd.source) {
++        default:
++            if (getImageGenerationProvider(extension_settings.sd.source)) vaes = ['N/A'];
++            break;
+         case sources.extras:
+             vaes = ['N/A'];
+             break;
+@@ -3337,6 +3355,12 @@ async function sendGenerationRequest(generationType, prompt, additionalNegativeP
+
+     try {
+         switch (extension_settings.sd.source) {
++            default: {
++                const provider = getImageGenerationProvider(extension_settings.sd.source);
++                if (!provider || !provider.isAvailable()) throw new Error('Selected image provider is unavailable.');
++                result = await provider.generate({ prompt: prefixedPrompt, negativePrompt, model: extension_settings.sd.model, signal });
++                break;
++            }
+             case sources.extras:
+                 result = await generateExtrasImage(prefixedPrompt, negativePrompt, signal);
+                 break;
+@@ -5074,6 +5098,8 @@ async function addSDGenButtons() {
+ }
+
+ function isValidState() {
++    const provider = getImageGenerationProvider(extension_settings.sd.source);
++    if (provider) return Boolean(provider.isAvailable());
+     switch (extension_settings.sd.source) {
+         case sources.extras:
+             return modules.includes('sd');
+@@ -5949,6 +5975,24 @@ export async function init() {
+         });
+     });
+
++    const syncExternalSources = () => {
++        $('#sd_source option[data-external-provider]').remove();
++        for (const provider of listImageGenerationProviders()) {
++            const option = document.createElement('option');
++            option.value = provider.id;
++            option.textContent = provider.label;
++            option.dataset.externalProvider = 'true';
++            $('#sd_source').append(option);
++        }
++        $('#sd_source').val(extension_settings.sd.source);
++        toggleSourceControls();
++    };
++    $('<small id="sd_external_provider_hint" class="displayBlock"></small>').insertAfter('#sd_source');
++    onImageGenerationProvidersChanged(() => {
++        syncExternalSources();
++        loadSettingOptions().catch(console.error);
++    });
++    syncExternalSources();
+     await loadSettings();
+     $('body').addClass('sd');
+
+diff --git a/public/scripts/extensions/stable-diffusion/providers.js b/public/scripts/extensions/stable-diffusion/providers.js
+new file mode 100644
+--- /dev/null
++++ b/public/scripts/extensions/stable-diffusion/providers.js
+@@ -0,0 +1,32 @@
++/** Third-party image sources share the native prompt, upload and chat pipeline. */
++const providers = new Map();
++const listeners = new Set();
++
++export function getImageGenerationProvider(id) { return providers.get(id); }
++export function listImageGenerationProviders() { return [...providers.values()]; }
++export function onImageGenerationProvidersChanged(callback) {
++    listeners.add(callback);
++    return () => listeners.delete(callback);
++}
++
++/**
++ * Register a namespaced source. generate returns {data: base64, format: string}.
++ * The returned cleanup only removes this registration, never a replacement.
++ */
++export function registerImageGenerationProvider(provider) {
++    if (!provider || !/^[a-z0-9_-]+:[a-z0-9_-]+$/.test(provider.id)
++        || typeof provider.label !== 'string' || typeof provider.generate !== 'function'
++        || typeof provider.isAvailable !== 'function' || !Array.isArray(provider.models)
++        || !provider.models.length || provider.models.some(m => typeof m.value !== 'string' || typeof m.text !== 'string')) {
++        throw new Error('Invalid image generation provider');
++    }
++    if (providers.has(provider.id)) throw new Error(`Image source ${provider.id} is already registered`);
++    const registered = Object.freeze({ ...provider, models: provider.models.map(m => Object.freeze({ ...m })) });
++    providers.set(provider.id, registered);
++    for (const callback of listeners) callback();
++    return () => {
++        if (providers.get(provider.id) !== registered) return;
++        providers.delete(provider.id);
++        for (const callback of listeners) callback();
++    };
++}
