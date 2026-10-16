@@ -65,7 +65,7 @@ const fresh = () => loadSettings({});
 test('manifest version matches UI_VERSION and declares a minimum client version', () => {
     const m = JSON.parse(readFileSync(join(repoRoot, 'manifest.json'), 'utf8'));
     assert.equal(m.version, UI_VERSION);
-    assert.equal(UI_VERSION, '3.1.0');
+    assert.equal(UI_VERSION, '3.2.0-grok.2');
     assert.equal(m.js, 'index.js');
     assert.match(String(m.minimum_client_version), /^\d+\.\d+\.\d+$/);
 });
@@ -248,6 +248,7 @@ test('buildSubscriptionsBlock: defaults, omitted auto/default values, reasoning 
         claude: { backend: 'subscription', thinking: 'adaptive', identity_mode: false, use_resume: true, fast_mode: false },
         codex: { backend: 'subscription', service_tier: 'standard', reasoning_summary: 'auto' },
         gemini: { backend: 'subscription' },
+        grok: { backend: 'subscription' },
     });
     assert.equal(buildSubscriptionsBlock(s, { include_reasoning: false }).show_reasoning, false);
     assert.equal(buildSubscriptionsBlock(s, {}).show_reasoning, true);

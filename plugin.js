@@ -1,12 +1,13 @@
 // ──────────────────────────────────────────────
-// SillyTavern Server Plugin — Subscriptions (Claude Max · Codex · Gemini)
+// SillyTavern Server Plugin — Subscriptions (Claude Max · Codex · Gemini · Grok)
 // ──────────────────────────────────────────────
 //
-// One OpenAI-compatible proxy for three subscriptions:
+// One OpenAI-compatible proxy for four subscriptions:
 //   • Claude  — Anthropic Pro/Max via the Claude Agent SDK (claude auth login)
 //   • Codex   — ChatGPT Plus/Pro via the Codex CLI app-server (codex login)
 //   • Gemini  — Google Antigravity via the agy CLI (agy sign-in)
-// Each also has an opt-in pay-per-token "api" backend (the vendor API or a
+//   • Grok    — subscription device OAuth (experimental; see docs/GROK_OAUTH.md)
+// Claude, Codex and Gemini also have an opt-in pay-per-token "api" backend (the vendor API or a
 // compatible relay). The subscription is always the default backend.
 //
 // The chat endpoints run on a separate HTTP listener (default 127.0.0.1:8901)
@@ -40,6 +41,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { startStandaloneListener, stopStandaloneListener, handleStatus, handleQuota, handleModels } from './lib/listener.js';
+import { mountGrokRoutes } from './lib/grok/routes.js';
 import { stopAppServer } from './lib/codex/app-server.js';
 import { sdkUpdateNeeded } from './lib/claude/sdk-loader.js';
 import { envInt, envString, envFlag } from './lib/common/platform.js';
@@ -57,9 +59,9 @@ const LEGACY_UI_DIRS = ['SillyTavern-ClaudeMax', 'SillyTavern-GeminiAntigravity'
 
 export const info = {
     id: 'subscriptions',
-    name: 'Subscriptions (Claude Max · Codex · Gemini)',
+    name: 'Subscriptions (Claude Max · Codex · Gemini · Grok)',
     description:
-        'One OpenAI-compatible proxy that bills chat against your Claude Pro/Max, ChatGPT/Codex and Google Antigravity ' +
+        'One OpenAI-compatible proxy that bills chat against your Claude Pro/Max, ChatGPT/Codex, Google Antigravity and Grok ' +
         'subscriptions (optional pay-per-token API backends, never on by default). Pick the provider and model from inside SillyTavern via the ' +
         'auto-installed "Subscriptions" panel.',
 };
@@ -285,9 +287,10 @@ export function safeRoute(fn) {
  * SillyTavern-mounted routes (GET is CSRF-exempt): same-origin health, quota
  * and model list for the UI extension — a direct browser fetch to
  * 127.0.0.1:8901 resolves to the CLIENT device and fails whenever SillyTavern
- * is browsed from a phone or another PC. GET only, so no body parser.
+ * is browsed from a phone or another PC. Read endpoints are GET-only; OAuth POSTs use ST's existing JSON/CSRF middleware.
  */
 export function mountStRoutes(router) {
+    mountGrokRoutes(router, safeRoute);
     router.get('/status', safeRoute(handleStatus));
     router.get('/quota', safeRoute(handleQuota));
     router.get('/models', safeRoute((req, res) => handleModels(req, res, null)));

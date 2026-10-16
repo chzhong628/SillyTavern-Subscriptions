@@ -1,5 +1,22 @@
 # Changelog
 
+## 3.2.0-grok.2 (unreleased, experimental)
+
+- Add Grok device OAuth, isolated credentials, refresh locking, model discovery,
+  text chat through Responses and administrator login UI.
+- Keep API-key fallback disabled. Add offline protocol/transport tests and a
+  standalone live-verification command. Live OAuth and Grok 4.7 subscription chat
+  are verified; invoice reconciliation remains unverified.
+- Route subscription discovery and chat to the official CLI subscription proxy,
+  with honest adapter version/identity headers, upstream SSE accumulation for JSON
+  clients, and Grok reasoning effort controls.
+
+# Changelog
+
+- Adapt OAuth controls to the SillyTavern theme, login state and narrow panels;
+  keep pending logins cancellable after a browser reload. Validate stored token
+  fields and bound multiline stream events.
+
 ## 3.1.0
 
 Update: restart SillyTavern (it pulls the code), then run `npm install` inside

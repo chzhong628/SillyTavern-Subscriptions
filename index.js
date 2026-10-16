@@ -36,7 +36,7 @@
 // listener, so other Custom endpoints are untouched. The defaults are
 // subscription-only for every provider; nothing here ever enables key billing.
 
-export const UI_VERSION = '3.1.0';
+export const UI_VERSION = '3.2.0-grok.2';
 export const SETTINGS_VERSION = 3;
 export const DEFAULT_BASE = 'http://127.0.0.1:8901';
 
@@ -45,8 +45,8 @@ const PLUGIN_ROUTE = '/api/plugins/subscriptions';
 const TAG = '[subscriptions]';
 const SELF_URL = import.meta.url;
 
-export const PROVIDER_KEYS = ['claude', 'codex', 'gemini'];
-export const SCOPES = ['all', 'claude', 'codex', 'gemini'];
+export const PROVIDER_KEYS = ['claude', 'codex', 'gemini', 'grok'];
+export const SCOPES = ['all', 'claude', 'codex', 'gemini', 'grok'];
 export const BACKENDS = ['subscription', 'auto', 'api'];
 export const CLAUDE_EFFORTS = ['auto', 'low', 'medium', 'high', 'xhigh', 'max'];
 export const CLAUDE_THINKING = ['adaptive', 'on', 'off'];
@@ -69,6 +69,7 @@ export const defaultSettings = {
     claude: { backend: 'subscription', effort: 'auto', thinking: 'adaptive', identityMode: false, useResume: true, fastMode: false },
     codex: { backend: 'subscription', effort: 'auto', serviceTier: 'standard', reasoningSummary: 'auto', verbosity: 'default' },
     gemini: { backend: 'subscription', effort: 'auto' },
+    grok: { backend: 'subscription', effort: 'auto' },
     notices: [],
     settingsVersion: SETTINGS_VERSION,
 };
@@ -140,7 +141,7 @@ export function normalizeUrl(url) {
  * @returns {string|null} null when the value is not a usable base URL
  */
 export function parseEndpointBase(value) {
-    const raw = normalizeUrl(value).replace(/\/(claude|codex|gemini)?\/?v1$/i, '');
+    const raw = normalizeUrl(value).replace(/\/(claude|codex|gemini|grok)?\/?v1$/i, '');
     if (!raw) return DEFAULT_BASE;
     let u;
     try { u = new URL(raw); } catch { return null; }
@@ -179,6 +180,8 @@ export function normalizeSettings(s) {
     x.reasoningSummary = oneOf(CODEX_SUMMARIES, x.reasoningSummary, 'auto');
     x.verbosity = oneOf(CODEX_VERBOSITY, x.verbosity, 'default');
 
+    s.grok.backend = 'subscription';
+    s.grok.effort = oneOf(['auto', 'low', 'medium', 'high', 'xhigh'], s.grok.effort, 'auto');
     const g = s.gemini;
     g.backend = oneOf(BACKENDS, g.backend, 'subscription');
     g.effort = oneOf(GEMINI_EFFORTS, g.effort, 'auto');
@@ -296,6 +299,8 @@ export function buildSubscriptionsBlock(s, data = {}) {
             reasoning_summary: oneOf(CODEX_SUMMARIES, x.reasoningSummary, 'auto'),
             ...(verbosity !== 'default' ? { verbosity } : {}),
         },
+        grok: { backend: 'subscription',
+            ...(['low', 'medium', 'high', 'xhigh'].includes(s?.grok?.effort) ? { effort: s.grok.effort } : {}) },
         gemini: {
             backend: oneOf(BACKENDS, g.backend, 'subscription'),
             ...(geminiEffort !== 'auto' ? { effort: geminiEffort } : {}),
@@ -419,6 +424,7 @@ export function apiInfo(c) {
 const KEY_NOT_VISIBLE = 'Status cannot see a key kept only in SillyTavern\'s Custom API key field — the first chat will tell.';
 
 function subscriptionProblem(provider, c, sub) {
+    if (provider === 'grok') return ['warn', 'sign-in required', c.message ?? 'Sign in through the Grok drawer.'];
     if (provider === 'claude') {
         // Not sub.message here: with the runtime missing it still describes the login ("max login").
         if (!claudeRuntime(c)) return ['err', 'unavailable', str(c?.message) ?? 'The Agent SDK or its bundled Claude CLI is missing — reinstall the plugin dependencies (without --omit=optional).'];
@@ -718,6 +724,10 @@ function renderStatus(box, status, quota, settings) {
     frag.append(claudeSection(p.claude, quota, settings.claude.backend));
     frag.append(codexSection(p.codex, quota, settings.codex.backend));
     frag.append(geminiSection(p.gemini, settings.gemini.backend));
+    const grok = section('Grok — subscription OAuth');
+    grok.append(backendRows('grok', p.grok, 'subscription'));
+    if (p.grok?.message) grok.append(row('Note', p.grok.message, 'warn'));
+    frag.append(grok);
     box.replaceChildren(frag);
 }
 
@@ -793,6 +803,12 @@ function makeCheckboxRow(labelText, id, checked, onChange) {
 
 function makeHelp(text) {
     return el('small', 'st-subs-help', text);
+}
+
+/** A pending host login stays cancellable after a browser reload. */
+export function grokAuthControls(login, pending = false) {
+    const waiting = pending || login?.pending === true;
+    return { signIn: !login?.loggedIn && !waiting, signOut: !!login?.loggedIn && !waiting, cancel: waiting };
 }
 
 function makeButton(cls, text, ariaLabel) {
@@ -906,6 +922,7 @@ function boot() {
     let statusBusy = false;
     let lastStatus = null;
     let lastQuota = null;
+    let updateGrokControls = () => {};
 
     function onSettingsReady(data) {
         try {
@@ -922,6 +939,7 @@ function boot() {
 
     function renderBadges(settings) {
         if (!lastStatus) return;
+        updateGrokControls(lastStatus.providers?.grok?.login);
         for (const p of PROVIDER_KEYS) {
             const r = providerReadiness(p, lastStatus.providers?.[p], settings[p].backend);
             setBadge(p, r.tone, r.text, r.detail);
@@ -982,7 +1000,7 @@ function boot() {
         container.append(drawer);
 
         const toggle = el('div', 'inline-drawer-toggle inline-drawer-header');
-        toggle.append(el('b', null, 'Subscriptions (Claude Max · Codex · Gemini)'));
+        toggle.append(el('b', null, 'Subscriptions (Claude Max · Codex · Gemini · Grok)'));
         toggle.append(el('div', 'inline-drawer-icon fa-solid fa-circle-chevron-down down'));
         const content = el('div', 'inline-drawer-content');
         drawer.append(toggle, content);
@@ -1027,7 +1045,7 @@ function boot() {
             settings.scope = oneOf(SCOPES, v, 'all');
             saveSettingsDebounced();
             endpointPreview.textContent = `Endpoint: ${endpointFor(settings)}`;
-        }, { all: 'All subscriptions (one model list)', claude: 'Claude only', codex: 'Codex / ChatGPT only', gemini: 'Gemini / Antigravity only' });
+        }, { all: 'All subscriptions (one model list)', claude: 'Claude only', codex: 'Codex / ChatGPT only', gemini: 'Gemini / Antigravity only', grok: 'Grok subscription only (experimental)' });
         content.append(scopeLabel, scopeSelect);
         const endpointPreview = makeHelp(`Endpoint: ${endpointFor(settings)}`);
         content.append(endpointPreview);
@@ -1035,7 +1053,7 @@ function boot() {
             'One click does the whole setup: switches the API to Chat Completion → Custom (OpenAI-compatible), fills in the ' +
             'endpoint and connects. No API key is needed, and Connect never changes SillyTavern\'s Custom API key field. Then ' +
             'pick any model from the normal model dropdown — claude-* goes to your Claude subscription, gpt-* to ChatGPT/Codex, ' +
-            'gemini-* to Antigravity. "All subscriptions" lists every provider that is usable on this machine; pick a single ' +
+            'gemini-* to Antigravity, grok-* to Grok. "All subscriptions" lists every provider that is usable on this machine; pick a single ' +
             'provider if you prefer a shorter list.',
         ));
 
@@ -1065,7 +1083,7 @@ function boot() {
         content.append(makeHelp(
             'Display toggle only — it does not change whether a model thinks. ON: thinking summaries stream into SillyTavern\'s ' +
             'collapsible reasoning box. SillyTavern also needs "Request model reasoning" turned on (AI Response Configuration); ' +
-            'while that is off, no thinking is streamed at all. Claude and Codex stream summaries; Antigravity\'s CLI never ' +
+            'while that is off, no thinking is streamed at all. Claude, Codex and Grok can stream summaries; Antigravity\'s CLI never ' +
             'exposes Gemini\'s thoughts.',
         ));
 
@@ -1156,6 +1174,107 @@ function boot() {
             codex.append(makeHelp('How long GPT\'s replies tend to be. Default follows SillyTavern\'s own Verbosity setting (AI Response Configuration) when it is not Auto, otherwise medium.'));
         }
 
+        // ── Grok: OAuth secrets remain on the server. ──
+        const grok = makeDrawer(content, 'Grok — subscription OAuth', 'grok');
+        const [grokEffortLabel, grokEffort] = makeSelectRow('Reasoning effort', 'stSubsGrokEffort', ['auto', 'low', 'medium', 'high', 'xhigh'], settings.grok.effort,
+            (v) => { settings.grok.effort = v; saveSettingsDebounced(); }, { auto: 'Auto (model default)', low: 'Low', medium: 'Medium', high: 'High', xhigh: 'Extra High' });
+        grok.append(grokEffortLabel, grokEffort);
+        grok.append(makeHelp('Uses your Grok subscription through OAuth. No API key or automatic API fallback. Text conversations only; model access depends on your account.'));
+        grok.append(makeHelp('Auto uses the model default. Lower effort usually replies faster. Reasoning summaries appear only when returned by Grok. An administrator manages this shared server login.'));
+        const grokActions = el('div', 'st-subs-auth-actions');
+        const authButton = (text) => {
+            const button = el('button', 'menu_button', text);
+            button.type = 'button';
+            return button;
+        };
+        const grokLogin = authButton('Sign in to Grok');
+        const grokCancel = authButton('Cancel login');
+        const grokLogout = authButton('Sign out');
+        const grokMessage = el('div', 'st-subs-help');
+        grokMessage.setAttribute('aria-live', 'polite');
+        grokActions.append(grokLogin, grokCancel, grokLogout);
+        grok.append(grokActions, grokMessage);
+        let grokGeneration = 0;
+        let grokBusy = false;
+        let grokPending = false;
+        let grokLoginState = null;
+        let grokInteracted = false;
+        updateGrokControls = (login = grokLoginState) => {
+            grokLoginState = login;
+            const controls = grokAuthControls(login, grokPending);
+            grokLogin.hidden = !controls.signIn;
+            grokLogout.hidden = !controls.signOut;
+            grokCancel.hidden = !controls.cancel;
+            for (const button of [grokLogin, grokCancel, grokLogout]) button.disabled = grokBusy;
+            if (!grokPending && !grokBusy && !grokInteracted) {
+                grokMessage.textContent = controls.cancel ? 'A login is pending on this server. Finish it in the original tab, or cancel to start again.'
+                    : login?.loggedIn ? 'Signed in on this server.' : 'Sign in to authorize this server. The OAuth client must be configured by its administrator.';
+            }
+        };
+        updateGrokControls();
+        const grokPost = async (action) => {
+            const response = await fetch(PLUGIN_ROUTE + '/grok/oauth/' + action, {
+                method: 'POST', headers: SillyTavern.getContext().getRequestHeaders(),
+                body: '{}', signal: timeoutSignal(25000),
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error?.message ?? ('HTTP ' + response.status));
+            return data;
+        };
+        const grokEnd = async (action) => {
+            if (grokBusy || disposed) return;
+            grokInteracted = true;
+            grokBusy = true;
+            grokGeneration++;
+            updateGrokControls();
+            try {
+                await grokPost(action);
+                grokPending = false;
+                if (action === 'logout') grokLoginState = { loggedIn: false };
+                grokMessage.textContent = action === 'logout' ? 'Signed out on this server. Authorization at xAI is unchanged.' : 'Login cancelled.';
+                await refreshStatus({ deep: false });
+            } catch (err) { if (!disposed) grokMessage.textContent = errorText(err); }
+            finally { grokBusy = false; updateGrokControls(); }
+        };
+        grokCancel.addEventListener('click', () => grokEnd('cancel'));
+        grokLogout.addEventListener('click', () => grokEnd('logout'));
+        grokLogin.addEventListener('click', async () => {
+            if (grokBusy || grokPending || disposed) return;
+            grokInteracted = true;
+            grokBusy = true;
+            updateGrokControls();
+            const generation = ++grokGeneration;
+            try {
+                const login = await grokPost('start');
+                if (generation !== grokGeneration || disposed) return;
+                const link = el('a', null, 'Open Grok authorization');
+                link.href = login.verificationUri; link.target = '_blank'; link.rel = 'noopener noreferrer';
+                grokMessage.replaceChildren(link, document.createTextNode(' — enter code: ' + login.userCode));
+                grokPending = true;
+                grokBusy = false;
+                updateGrokControls();
+                let interval = login.intervalMs;
+                while (generation === grokGeneration && !disposed) {
+                    await new Promise((resolve) => setTimeout(resolve, interval));
+                    if (generation !== grokGeneration || disposed) return;
+                    const result = await grokPost('poll');
+                    if (generation !== grokGeneration || disposed) return;
+                    if (result.state === 'connected') {
+                        grokPending = false;
+                        grokLoginState = { loggedIn: true };
+                        grokMessage.textContent = 'Signed in. Click Connect to refresh the model list, then select a Grok model.';
+                        await refreshStatus({ deep: false });
+                        return;
+                    }
+                    interval = result.intervalMs;
+                }
+            } catch (err) {
+                if (generation === grokGeneration && !disposed) { grokPending = false; grokMessage.textContent = errorText(err); }
+            } finally {
+                if (generation === grokGeneration && !disposed) { grokBusy = false; updateGrokControls(); }
+            }
+        });
+
         // ── Gemini ──
         const gemini = makeDrawer(content, 'Gemini — Google Antigravity', 'gemini');
         {
@@ -1189,14 +1308,14 @@ function boot() {
             refreshStatus({ deep: shouldDeepProbe(current, lastStatus) });
         });
         statusHeader.append(statusRefresh);
-        const statusBox = el('div', 'st-subs-status-box', 'Press refresh to check the three subscriptions.');
+        const statusBox = el('div', 'st-subs-status-box', 'Press refresh to check the subscriptions.');
         statusBox.id = 'st_subs_status';
         statusBox.setAttribute('aria-live', 'polite');
         content.append(statusHeader, statusBox);
 
         content.append(el('small', 'st-subs-hint',
             'Leave SillyTavern\'s native "Reasoning Effort" dropdown on Auto — the per-provider effort above replaces it. ' +
-            'Temperature/Top-P only apply on Gemini\'s API backend (the CLIs expose no sampling controls).'));
+            'Temperature/Top-P are forwarded to Grok and Gemini\'s API backend where supported by the model.'));
 
         return drawer;
     }

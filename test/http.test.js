@@ -607,11 +607,12 @@ test('installUiExtension respects ST_SUBSCRIPTIONS_NO_UI_INSTALL and a missing S
     }
 });
 
-test('ST-mounted routes are GET-only and registered without a body parser', () => {
+test('ST-mounted reads stay GET-only; OAuth management adds protected POSTs', () => {
     const routes = {};
     const router = {
         use() { throw new Error('no middleware expected on the SillyTavern router'); },
         get(path, handler) { routes[path] = handler; },
+        post(path, ...handlers) { assert.ok(path.startsWith('/grok/oauth/')); assert.equal(handlers.length, 2); },
     };
     mountStRoutes(router);
     assert.deepEqual(Object.keys(routes).sort(), ['/models', '/quota', '/status']);

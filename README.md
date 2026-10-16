@@ -1,7 +1,7 @@
-# SillyTavern — Subscriptions (Claude Max · Codex · Gemini)
+# SillyTavern — Subscriptions (Claude Max · Codex · Gemini · Grok)
 
 Use the AI subscriptions you already pay for in SillyTavern — **Claude
-Pro/Max**, **ChatGPT Plus/Pro (Codex)** and **Google Antigravity (Gemini)** —
+Pro/Max**, **ChatGPT Plus/Pro (Codex)**, **Google Antigravity (Gemini)** and experimental **Grok OAuth** —
 through one server plugin and one panel, instead of per-token API keys. Each
 provider also has an opt-in pay-per-token "API" backend (your own vendor key,
 or any compatible relay via a base URL) for when a subscription window is used up.
@@ -9,7 +9,7 @@ or any compatible relay via a base URL) for when a subscription window is used u
 This is the successor of the three separate plugins
 (SillyTavern-ClaudeSubscription, SillyTavern-CodexSubscription,
 SillyTavern-GeminiSubscription). One listener, one model list, one panel;
-pick the provider by picking the model. You do not need all three
+pick the provider by picking the model. You do not need all four
 subscriptions — whichever you are logged into on the SillyTavern machine
 shows up, the rest stay out of the way.
 
@@ -17,6 +17,12 @@ shows up, the rest stay out of the way.
   <img src="docs/images/panel-1.png" width="49%" alt="The Subscriptions panel in SillyTavern: one Connect button, a provider scope picker, and a settings drawer per provider">
   <img src="docs/images/panel-2.png" width="49%" alt="Status and quota view: Claude, Codex and Gemini all ready on subscription logins, with live usage windows for Claude and Codex">
 </p>
+
+## Experimental Grok OAuth branch
+
+This branch adds device-code subscription OAuth, text chat and a Grok panel.
+See [setup, live verification and limitations](docs/GROK_OAUTH.md). Offline
+tests pass; real OAuth login and Grok 4.7 subscription-proxy chat have been verified.
 
 ## Quick start
 
@@ -166,7 +172,7 @@ Settings in the panel apply from the next message — no reconnect needed.
 
 | Section | Setting | Notes |
 | --- | --- | --- |
-| Global | Show reasoning | Display only. Streams thinking summaries into ST's reasoning box (also enable **Request model reasoning** in ST's AI Response Configuration). Claude and Codex stream summaries; Antigravity's CLI never exposes Gemini thoughts. |
+| Global | Show reasoning | Display only. Streams thinking summaries into ST's reasoning box (also enable **Request model reasoning** in ST's AI Response Configuration). Claude, Codex and Grok can stream summaries; Antigravity's CLI never exposes Gemini thoughts. |
 | Claude | Backend | **Subscription only (default)** — only your Claude login is ever billed, never an API key (checked before each request). If Extra Usage is enabled on your Claude account, requests past your plan window — and Fast mode / the 4.6 "(1M context)" entries — are billed as Extra Usage; turn it off in your account settings if you don't want that. *Auto* — the subscription first; the API key is used for a request only when your plan's usage window is exhausted or rate limiting persists after retries (never just because a key exists). *API key* — keys from ST's Custom API key field, `ST_SUBSCRIPTIONS_CLAUDE_API_KEY`, `ANTHROPIC_API_KEY` / `ANTHROPIC_AUTH_TOKEN`, or `~/.claude/settings.json`'s env block; `ST_SUBSCRIPTIONS_CLAUDE_BASE_URL` / `ANTHROPIC_BASE_URL` points at a relay (a real `sk-ant-` key is never sent to a relay URL that only sits in settings.json). Your OAuth login is never modified. |
 | | Reasoning effort | `low … max`. Auto = the model's default (Opus 5.5 / Sonnet 5.5: medium, Opus 4.7: xhigh, most others: high). Levels a model lacks step down automatically; Haiku 4.5, Sonnet 4.5 and Opus 4.5 take no effort. |
 | | Thinking mode | Adaptive / On / Off. Fable, Opus 5.5 and Sonnet 5.5 always think (Off is ignored there); Off works on every other model. On forces a fixed thinking budget where a model allows one (Opus/Sonnet 4.6 and the 4.5 models); on newer models it behaves like Adaptive. Thinking counts toward the max response length. |
@@ -183,7 +189,7 @@ Settings in the panel apply from the next message — no reconnect needed.
 | Status & quota | Refresh | Per provider and per selected backend: CLI found (with version), login state, routing, key availability, Claude 5h/7d windows (plus per-model weekly caps and Extra Usage), Codex rate limits. |
 
 Leave SillyTavern's native **Reasoning Effort** dropdown on *Auto*; the panel
-replaces it. Temperature/Top-P are forwarded only on Gemini's API backend (the
+replaces it. Temperature/Top-P are forwarded on Grok and Gemini's API backend (the
 CLIs expose no sampling controls).
 
 **Background requests.** Requests that extensions send through a Connection

@@ -26,6 +26,6 @@ test('resolveProvider precedence: model > settings > path', () => {
 
 test('router re-exports PROVIDERS and drops the unused isProvider helper', async () => {
     const mod = await import('../lib/router.js');
-    assert.deepEqual(mod.PROVIDERS, ['claude', 'codex', 'gemini']);
+    assert.deepEqual(mod.PROVIDERS, ['claude', 'codex', 'gemini', 'grok']);
     assert.equal('isProvider' in mod, false);
 });
